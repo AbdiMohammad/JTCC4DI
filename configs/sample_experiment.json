@@ -1,0 +1,39 @@
+{
+    "PSNR": 10,
+    "dataset": "cifar10",
+    "model": "resnet20",
+    "cifar_pretrained_weights_path": "cifar_pretrained/resnet20-12fca82f.th",
+    "batch_size": 256,
+    "n_epochs": 100,
+    "pretrained_weights_path": null,
+    "save_weights_after_train_path": "output/experiment4/weights_after_train.pth",
+    "codebook_lr": 0.001,
+    "non_codebook_lr": 0.0001,
+    "output_folder": "output/experiment4",
+    "codebooks":[
+        {
+            "layer": "layer1[0]",
+            "hidden_dim": 16,
+            "codebook_size": 16,
+            "beta": "LinearBeta(1e-3, 1e-4)",
+            "prune_epochs": [40 , 60],
+            "prune_ns": [4, 4]
+        },
+        {
+            "layer": "layer1[1]",
+            "hidden_dim": 16,
+            "codebook_size": 16,
+            "beta": "ConstantBeta(1e-3)",
+            "prune_epochs": [50, 70],
+            "prune_ns": [4, 4]
+        }
+    ],
+
+    "prune_channels": [
+        {
+            "layer": "layer1[0].conv2",
+            "prune_epochs": [20, 30],
+            "prune_ns": [2, 4]
+        }
+    ]
+}

@@ -1,0 +1,32 @@
+{
+    "PSNR": 10,
+    "dataset": "cifar10",
+    "model": "resnet56",
+    "reference_pretrained_weights_path": "cifar_pretrained/resnet56-4bfd9763.th",
+    "batch_size": 512,
+    "n_epochs": 300,
+    "pretrained_weights_path": null,
+    "save_weights_after_train_path": true,
+    "codebook_lr": 0.001,
+    "non_codebook_lr": 0.0001,
+    "output_folder": "output/experiment_3",
+    "codebooks":[
+        {
+            "layer": "layer1[8]",
+            "hidden_dim": 16,
+            "codebook_size": 16,
+            "beta": "LinearCoefficient(1e-4, 1e-3)",
+            "prune_epochs": [50, 60, 70, 80, 90],
+            "prune_value": 50,
+            "prune_value_type": "percentage"
+        }
+    ],
+
+    "funnel": {
+        "layer": "layer1[8].conv2",
+        "gamma": 1e-5,
+        "prune_epochs": [50, 60, 70, 80, 90],
+        "prune_value": 50,
+        "prune_value_type": "percentage"
+    }
+}
