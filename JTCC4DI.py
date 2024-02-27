@@ -540,8 +540,8 @@ if __name__ == '__main__':
     ])
 
     if dataset == 'cifar10': 
-        cifar10_train = torchvision.datasets.CIFAR10('cifar10', train=True, download=True, transform=transform)
-        cifar10_test = torchvision.datasets.CIFAR10('cifar10', train=False, download=True, transform=transform)
+        cifar10_train = torchvision.datasets.CIFAR10('dataset/cifar10', train=True, download=True, transform=transform)
+        cifar10_test = torchvision.datasets.CIFAR10('dataset/cifar10', train=False, download=True, transform=transform)
         cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True)
         cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE)
 
