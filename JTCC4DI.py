@@ -215,8 +215,8 @@ def resnet_vib_loss(model_output: CodebookOutput, labels, norm_regularizers, epo
     metrics["original acc"] = original_model_acc
 
     # FIXME: Remove norm regulizers for more stability
-    # for norm_regularizer in norm_regularizers:
-    #     loss += norm_regularizer[0](epoch, n_epochs) * norm_regularizer[1]
+    for norm_regularizer in norm_regularizers:
+        loss += norm_regularizer[0](epoch, n_epochs) * norm_regularizer[1]
 
     for codebook_output, dist, codebook in model_output.codebook_outputs:
         distortion_loss = F.cross_entropy(codebook_output, labels)
@@ -674,6 +674,11 @@ if __name__ == '__main__':
     pruned_flops_head, pruned_params_head = count_ops_and_params(physically_pruned_model, ignore_list=tail_modules)
     pruned_val_ori_acc, pruned_val_codebook_acc = evaluate_codebook_model(physically_pruned_model, valid_dl, -1), evaluate_codebook_model(physically_pruned_model, valid_dl, 0)
 
+    unmodified_model = cifar_resnet_loader_generator(model_name, reference_pretrained_weights_path)()
+    unmodified_flops_total, unmodified_params_total = count_ops_and_params(unmodified_model)
+    unmodified_flops_head, unmodified_params_head = count_ops_and_params(unmodified_model, ignore_list=tail_modules)
+    unmodified_val_ori_acc = evaluate_codebook_model(unmodified_model, valid_dl, -1)
+
     acceleration_total, acceleration_head = flops_total / pruned_flops_total, flops_head / pruned_flops_head
     compression_total, compression_head = params_total / pruned_params_total, params_head / pruned_params_head
 
@@ -689,6 +694,11 @@ if __name__ == '__main__':
 
     print(f'Acceleration:\tTotal:{acceleration_total * 100.0}%, Head:{acceleration_head * 100.0}%')
     print(f'Compression:\tTotal:{compression_total * 100.0}%, Head:{compression_head * 100.0}%')
+    
+    print(10 * '*' + 'Unmodified Model' + 10 * '*')
+    print(f'Total:\tFLOPs: {unmodified_flops_total}, Params: {unmodified_params_total}')
+    print(f'Head:\tFLOPs: {unmodified_flops_head}, Params: {unmodified_params_head}')
+    print(f'Valid Original Accuracy:{unmodified_val_ori_acc}')
 
     training_data = {
         'train_metrics': train_metrics,
