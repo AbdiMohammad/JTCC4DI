@@ -1,6 +1,4 @@
 __pycache__/
-utils/__pycache__/
-utils/ptflops/__pycache__/
 output/
 runs/
 .vscode/

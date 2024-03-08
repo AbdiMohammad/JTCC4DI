@@ -682,23 +682,37 @@ if __name__ == '__main__':
     acceleration_total, acceleration_head = flops_total / pruned_flops_total, flops_head / pruned_flops_head
     compression_total, compression_head = params_total / pruned_params_total, params_head / pruned_params_head
 
-    print(10 * '*' + 'Virtually Pruned' + 10 * '*')
-    print(f'Total:\tFLOPs: {flops_total}, Params: {params_total}')
-    print(f'Head:\tFLOPs: {flops_head}, Params: {params_head}')
-    print(f'Valid Original Accuracy:{val_ori_acc}\tValid Codebook Accuracy:{val_codebook_acc}')
+    # print(f'Valid Original Accuracy:{pruned_val_ori_acc}\tValid Codebook Accuracy:{pruned_val_codebook_acc}')
+    print(10 * '*' + 'Total Computation' + 10 * '*')
+    print('Virtually Pruned:')
+    print(f'FLOPs: {flops_total}, Params: {params_total}')
+    print('Physically Pruned:')
+    print(f'FLOPs: {pruned_flops_total}, Params: {pruned_params_total}')
+    print('Unmodified:')
+    print(f'FLOPs: {unmodified_flops_total}, Params: {unmodified_params_total}')
 
-    print(10 * '*' + 'Physically Pruned' + 10 * '*')
-    print(f'Total:\tFLOPs: {pruned_flops_total}, Params: {pruned_params_total}')
-    print(f'Head:\tFLOPs: {pruned_flops_head}, Params: {pruned_params_head}')
-    print(f'Valid Original Accuracy:{pruned_val_ori_acc}\tValid Codebook Accuracy:{pruned_val_codebook_acc}')
+    print(10 * '*' + 'Head Computation' + 10 * '*')
+    print('Virtually Pruned:')
+    print(f'FLOPs: {flops_head}, Params: {params_head}')
+    print('Physically Pruned:')
+    print(f'FLOPs: {pruned_flops_head}, Params: {pruned_params_head}')
+    print('Unmodified:')
+    print(f'FLOPs: {unmodified_flops_head}, Params: {unmodified_params_head}')
 
-    print(f'Acceleration:\tTotal:{acceleration_total * 100.0}%, Head:{acceleration_head * 100.0}%')
-    print(f'Compression:\tTotal:{compression_total * 100.0}%, Head:{compression_head * 100.0}%')
-    
-    print(10 * '*' + 'Unmodified Model' + 10 * '*')
-    print(f'Total:\tFLOPs: {unmodified_flops_total}, Params: {unmodified_params_total}')
-    print(f'Head:\tFLOPs: {unmodified_flops_head}, Params: {unmodified_params_head}')
-    print(f'Valid Original Accuracy:{unmodified_val_ori_acc}')
+    print(10 * '*' + 'Performance' + 10 * '*')
+    print(f'Original: {val_ori_acc  * 100.0} %')
+    print(f'Codebook: {val_codebook_acc * 100.0} %')
+    print(f'Unmodified: {unmodified_val_ori_acc * 100.0} %')
+
+    print(10 * '*' + 'Three-way Trade-off' + 10 * '*')
+    print('Computation:')
+    print(f'Acceleration (Complexity): {flops_head} / {pruned_flops_head} = {acceleration_head * 100.0} %')
+    print(f'Compression (Size): {params_head} / {pruned_params_head} = {compression_head * 100.0} %')
+    print('Communication:')
+    ori_wireless_dim, compressed_wireless_dim = codebook_training_data[0].codebook_size, resnet_with_codebook(return_example_input()).codebook_outputs[0][2].n_embeddings
+    print(f'Efficiency: {ori_wireless_dim} / {compressed_wireless_dim} = {(ori_wireless_dim / compressed_wireless_dim) * 100.0} %')
+    print('Performance:')
+    print(f'Accuracy: {val_codebook_acc * 100.0}  - {val_ori_acc * 100.0} = {(val_codebook_acc - val_ori_acc)* 100.0} %')
 
     training_data = {
         'train_metrics': train_metrics,
