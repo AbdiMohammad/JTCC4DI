@@ -267,6 +267,8 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
 
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters())
+    
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     for epoch in range(n_epochs):
         for channel_prune_data in channel_prune_args:
@@ -333,7 +335,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 train_metrics[metric_name + '/train'].append(metric)
                 writer.add_scalar(metric_name + '/train', metric, epoch)
 
-
+        scheduler_loss = []
         with torch.no_grad():
             for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
                 xs = xs.to(device)
@@ -349,6 +351,9 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 for metric_name, metric in metrics.items():
                     valid_metrics[metric_name + '/valid'].append(metric)
                     writer.add_scalar(metric_name + '/valid', metric, epoch)
+                scheduler_loss.append(loss.item())
+
+        scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
 
         # plt.subplot(321, title='train original acc')
         # plt.plot(train_metrics[0])
@@ -545,8 +550,6 @@ if __name__ == '__main__':
         cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True)
         cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE)
 
-        cifar10_train_small = torch.utils.data.Subset(cifar10_train, range(0, 1024 * 4))
-        cifar10_train_small_dataloader = DataLoader(cifar10_train_small, batch_size=BATCH_SIZE, shuffle=True)
         train_dl = cifar10_train_dataloader
         valid_dl = cifar10_test_dataloader
 
