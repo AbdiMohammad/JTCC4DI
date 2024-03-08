@@ -1,5 +1,5 @@
 {
-    "PSNR": 4,
+    "PSNR": 12,
     "dataset": "cifar10",
     "model": "resnet110",
     "reference_pretrained_weights_path": "resource/cifar_pretrained/resnet110-1d1ed7c2.th",

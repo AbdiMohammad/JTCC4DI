@@ -685,6 +685,8 @@ if __name__ == '__main__':
     acceleration_total, acceleration_head = flops_total / pruned_flops_total, flops_head / pruned_flops_head
     compression_total, compression_head = params_total / pruned_params_total, params_head / pruned_params_head
 
+    print(physically_pruned_model)
+    
     # print(f'Valid Original Accuracy:{pruned_val_ori_acc}\tValid Codebook Accuracy:{pruned_val_codebook_acc}')
     print(10 * '*' + 'Total Computation' + 10 * '*')
     print('Virtually Pruned:')
@@ -731,4 +733,3 @@ if __name__ == '__main__':
         torch.save(resnet_with_codebook.state_dict(), f'{output_folder}/model.pth')
         torch.save(physically_pruned_model.state_dict(), f'{output_folder}/physically_pruned_model.pth')
     
-    print(physically_pruned_model)
