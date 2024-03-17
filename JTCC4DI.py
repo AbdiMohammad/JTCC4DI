@@ -268,7 +268,8 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters())
     
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[round(2.0 / 4 * n_epochs), round(3.0 / 4 * n_epochs)], gamma=0.1)
 
     for epoch in range(n_epochs):
         for channel_prune_data in channel_prune_args:
@@ -353,7 +354,8 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                     writer.add_scalar(metric_name + '/valid', metric, epoch)
                 scheduler_loss.append(loss.item())
 
-        scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
+        # scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
+        scheduler.step()
 
         # plt.subplot(321, title='train original acc')
         # plt.plot(train_metrics[0])
@@ -668,56 +670,61 @@ if __name__ == '__main__':
         # return op_counter.count_ops_and_params(model, example_inputs=return_example_input(), ignore_list=ignore_list)
         return ptflops.get_model_complexity_info(model, input_res=tuple(next(iter(train_dl))[0].shape)[1:], print_per_layer_stat=False, as_strings=False, input_constructor=return_example_input, verbose=False, ignore_list=ignore_list)
 
-    flops_total, params_total = count_ops_and_params(resnet_with_codebook)
-    flops_head, params_head = count_ops_and_params(resnet_with_codebook, ignore_list=tail_modules)
-    val_ori_acc, val_codebook_acc = evaluate_codebook_model(resnet_with_codebook, valid_dl, -1), evaluate_codebook_model(resnet_with_codebook, valid_dl, 0)
+    def recursive_dict():
+        return defaultdict(recursive_dict)
+    measures = recursive_dict()
+    measures['virtual']['total']['flops'], measures['virtual']['total']['params'] = count_ops_and_params(resnet_with_codebook)
+    measures['virtual']['head']['flops'], measures['virtual']['head']['params'] = count_ops_and_params(resnet_with_codebook, ignore_list=tail_modules)
+    measures['virtual']['acc']['ori'], measures['virtual']['acc']['codebook'] = evaluate_codebook_model(resnet_with_codebook, valid_dl, -1) * 100.0, evaluate_codebook_model(resnet_with_codebook, valid_dl, 0) * 100.0
 
     physically_pruned_model = get_physically_pruned_model(resnet_with_codebook, channel_prune_args=channel_pruning_data)
-    pruned_flops_total, pruned_params_total = count_ops_and_params(physically_pruned_model)
-    pruned_flops_head, pruned_params_head = count_ops_and_params(physically_pruned_model, ignore_list=tail_modules)
-    pruned_val_ori_acc, pruned_val_codebook_acc = evaluate_codebook_model(physically_pruned_model, valid_dl, -1), evaluate_codebook_model(physically_pruned_model, valid_dl, 0)
+    measures['physical']['total']['flops'], measures['physical']['total']['params'] = count_ops_and_params(physically_pruned_model)
+    measures['physical']['head']['flops'], measures['physical']['head']['params'] = count_ops_and_params(physically_pruned_model, ignore_list=tail_modules)
+    measures['physical']['acc']['ori'], measures['physical']['acc']['codebook'] = evaluate_codebook_model(physically_pruned_model, valid_dl, -1) * 100.0, evaluate_codebook_model(physically_pruned_model, valid_dl, 0) * 100.0
 
     unmodified_model = cifar_resnet_loader_generator(model_name, reference_pretrained_weights_path)()
-    unmodified_flops_total, unmodified_params_total = count_ops_and_params(unmodified_model)
-    unmodified_flops_head, unmodified_params_head = count_ops_and_params(unmodified_model, ignore_list=tail_modules)
-    unmodified_val_ori_acc = evaluate_codebook_model(unmodified_model, valid_dl, -1)
+    measures['unmodified']['total']['flops'], measures['unmodified']['total']['params'] = count_ops_and_params(unmodified_model)
+    measures['unmodified']['head']['flops'], measures['unmodified']['head']['params'] = count_ops_and_params(unmodified_model, ignore_list=tail_modules)
+    measures['unmodified']['acc']['ori'] = evaluate_codebook_model(unmodified_model, valid_dl, -1) * 100.0
 
-    acceleration_total, acceleration_head = flops_total / pruned_flops_total, flops_head / pruned_flops_head
-    compression_total, compression_head = params_total / pruned_params_total, params_head / pruned_params_head
+    measures['total']['accel'], measures['head']['accel'] = measures['virtual']['total']['flops'] / measures['physical']['total']['flops'] * 100.0, measures['virtual']['head']['flops'] / measures['physical']['head']['flops'] * 100.0
+    measures['total']['comp'], measures['head']['comp'] = measures['virtual']['total']['params'] / measures['physical']['total']['params'], measures['virtual']['head']['params'] / measures['physical']['head']['params']
+
+    measures['comm']['ori'], measures['comm']['comp'] = codebook_training_data[0].codebook_size, resnet_with_codebook(return_example_input()).codebook_outputs[0][2].n_embeddings
+    measures['comm']['efficiency'] = (measures['comm']['ori'] / measures['comm']['comp']) * 100.0
 
     print(physically_pruned_model)
-    
-    # print(f'Valid Original Accuracy:{pruned_val_ori_acc}\tValid Codebook Accuracy:{pruned_val_codebook_acc}')
+
+    # print(f"Valid Original Accuracy:{measures['physical']['acc']['ori']}\tValid Codebook Accuracy:{measures['physical']['acc']['codebook']}")
     print(10 * '*' + 'Total Computation' + 10 * '*')
     print('Virtually Pruned:')
-    print(f'FLOPs: {flops_total}, Params: {params_total}')
+    print(f"FLOPs: {measures['virtual']['total']['flops']}, Params: {measures['virtual']['total']['params']}")
     print('Physically Pruned:')
-    print(f'FLOPs: {pruned_flops_total}, Params: {pruned_params_total}')
+    print(f"FLOPs: {measures['physical']['total']['flops']}, Params: {measures['physical']['total']['params']}")
     print('Unmodified:')
-    print(f'FLOPs: {unmodified_flops_total}, Params: {unmodified_params_total}')
+    print(f"FLOPs: {measures['unmodified']['total']['flops']}, Params: {measures['unmodified']['total']['params']}")
 
     print(10 * '*' + 'Head Computation' + 10 * '*')
     print('Virtually Pruned:')
-    print(f'FLOPs: {flops_head}, Params: {params_head}')
+    print(f"FLOPs: {measures['virtual']['head']['flops']}, Params: {measures['virtual']['head']['params']}")
     print('Physically Pruned:')
-    print(f'FLOPs: {pruned_flops_head}, Params: {pruned_params_head}')
+    print(f"FLOPs: {measures['physical']['head']['flops']}, Params: {measures['physical']['head']['params']}")
     print('Unmodified:')
-    print(f'FLOPs: {unmodified_flops_head}, Params: {unmodified_params_head}')
+    print(f"FLOPs: {measures['unmodified']['head']['flops']}, Params: {measures['unmodified']['head']['params']}")
 
     print(10 * '*' + 'Performance' + 10 * '*')
-    print(f'Original: {val_ori_acc  * 100.0} %')
-    print(f'Codebook: {val_codebook_acc * 100.0} %')
-    print(f'Unmodified: {unmodified_val_ori_acc * 100.0} %')
+    print(f"Original: {measures['virtual']['acc']['ori']} %")
+    print(f"Codebook: {measures['virtual']['acc']['codebook']} %")
+    print(f"Unmodified: {measures['unmodified']['acc']['ori']} %")
 
     print(10 * '*' + 'Three-way Trade-off' + 10 * '*')
     print('Computation:')
-    print(f'Acceleration (Complexity): {flops_head} / {pruned_flops_head} = {acceleration_head * 100.0} %')
-    print(f'Compression (Size): {params_head} / {pruned_params_head} = {compression_head * 100.0} %')
+    print(f"Acceleration (Complexity): {measures['virtual']['head']['flops']} / {measures['physical']['head']['flops']} = {measures['head']['accel']} %")
+    print(f"Compression (Size): {measures['virtual']['head']['params']} / {measures['physical']['head']['params']} = {measures['head']['comp']} %")
     print('Communication:')
-    ori_wireless_dim, compressed_wireless_dim = codebook_training_data[0].codebook_size, resnet_with_codebook(return_example_input()).codebook_outputs[0][2].n_embeddings
-    print(f'Efficiency: {ori_wireless_dim} / {compressed_wireless_dim} = {(ori_wireless_dim / compressed_wireless_dim) * 100.0} %')
+    print(f"Efficiency: {measures['comm']['ori']} / {measures['comm']['comp']} = {measures['comm']['efficiency']} %")
     print('Performance:')
-    print(f'Accuracy: {val_codebook_acc * 100.0}  - {val_ori_acc * 100.0} = {(val_codebook_acc - val_ori_acc)* 100.0} %')
+    print(f"Accuracy: {measures['virtual']['acc']['codebook']}  - {measures['virtual']['acc']['ori']} = {measures['virtual']['acc']['codebook'] - measures['virtual']['acc']['ori']} %")
 
     training_data = {
         'train_metrics': train_metrics,
@@ -728,6 +735,9 @@ if __name__ == '__main__':
 
     with open(output_folder + '/train_metrics.json', 'w') as outfile:
         json.dump(training_data, outfile)
+
+    with open(output_folder + 'measures.json', 'w') as outfile:
+        json.dump(measures, outfile, indent=4)
 
     if save_weights_after_train_path:
         torch.save(resnet_with_codebook.state_dict(), f'{output_folder}/model.pth')
