@@ -9,7 +9,7 @@
     "save_weights_after_train_path": true,
     "codebook_lr": 0.001,
     "non_codebook_lr": 0.0001,
-    "output_folder": "output/base_experiment",
+    "output_folder": "output/base_experiment_resnet56",
     "codebooks":[
         {
             "layer": "layer1[8]",
