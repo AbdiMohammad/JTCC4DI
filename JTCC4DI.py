@@ -185,18 +185,20 @@ def evaluate_codebook_model(model, dataloader, codebook_index=-1):
     device = next(model.parameters()).device
     n_all = 0
     n_correct = 0
-    for xs, labels in tqdm(dataloader):
+    model.eval()
+    with torch.no_grad():
+        for xs, labels in tqdm(dataloader):
 
-        xs = xs.to(device)
-        labels = labels.to(device)
-        out = model(xs)
-        if type(out) == CodebookOutput:
-            if codebook_index == -1:
-                out = out.original_tensor
-            else:
-                out = out.codebook_outputs[codebook_index][0]
-        n_correct += (out.argmax(dim=-1) == labels).sum().item()
-        n_all += len(xs)
+            xs = xs.to(device)
+            labels = labels.to(device)
+            out = model(xs)
+            if type(out) == CodebookOutput:
+                if codebook_index == -1:
+                    out = out.original_tensor
+                else:
+                    out = out.codebook_outputs[codebook_index][0]
+            n_correct += (out.argmax(dim=-1) == labels).sum().item()
+            n_all += len(xs)
     return n_correct / n_all
 
 def model_device(model):
@@ -315,6 +317,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 # print('Valid accuracy after pruning: ', evaluate_codebook_model(model, valid_dataloader, i))
                 print('_' * 80)
 
+        model.train()
         for xs, labels in tqdm(train_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
 
             xs = xs.to(device)
@@ -337,6 +340,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 writer.add_scalar(metric_name + '/train', metric, epoch)
 
         scheduler_loss = []
+        model.eval()
         with torch.no_grad():
             for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
                 xs = xs.to(device)
