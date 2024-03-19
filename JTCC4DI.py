@@ -212,9 +212,9 @@ def resnet_vib_loss(model_output: CodebookOutput, labels, norm_regularizers, epo
     original_model_outputs = model_output.original_tensor
     metrics = dict()
     original_model_loss = F.cross_entropy(original_model_outputs, labels)
-    original_model_acc = (original_model_outputs.argmax(dim=-1) == labels).float().mean().item()
+    original_model_n_correct = (original_model_outputs.argmax(dim=-1) == labels).float().sum().item()
     loss = original_model_loss
-    metrics["original acc"] = original_model_acc
+    metrics["original"] = original_model_n_correct
 
     # FIXME: Remove norm regulizers for more stability
     for norm_regularizer in norm_regularizers:
@@ -222,12 +222,12 @@ def resnet_vib_loss(model_output: CodebookOutput, labels, norm_regularizers, epo
 
     for codebook_output, dist, codebook in model_output.codebook_outputs:
         distortion_loss = F.cross_entropy(codebook_output, labels)
-        codebook_acc = (codebook_output.argmax(dim=-1) == labels).float().mean().item()
+        codebook_n_correct = (codebook_output.argmax(dim=-1) == labels).float().sum().item()
         codebook_entropy = categorical_entropy(dist).mean().item()
         codebook_loss = distortion_loss + codebook.beta(epoch, n_epochs) * codebook_entropy
         loss += codebook_loss
         # metrics.append(codebook_acc)
-        metrics["codebook at " + codebook.train_data.layer_name + " acc"] = codebook_acc
+        metrics["codebook at " + codebook.train_data.layer_name] = codebook_n_correct
     return loss, metrics
 
 def get_pruner_submodule(module):
@@ -265,6 +265,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
     valid_losses = []
     valid_metrics = defaultdict(list)
     best_acc = -1
+    fine_tune_epoch = np.array([prune_data.prune_epochs for prune_data in channel_prune_args + codebook_training_datas]).max()
 
     writer = SummaryWriter()
 
@@ -337,33 +338,42 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
             train_losses.append(loss.item())
             writer.add_scalar('train loss', loss.item(), epoch)
             for metric_name, metric in metrics.items():
-                train_metrics[metric_name + '/train'].append(metric)
+                train_metrics[metric_name + ' n_correct' + '/train'] = 0
+                train_metrics[metric_name + ' n_all' + '/train'] = 0
+            for metric_name, metric in metrics.items():
+                train_metrics[metric_name + ' acc_batch' + '/train'].append(metric / len(labels))
+                train_metrics[metric_name + ' n_correct' + '/train'] += metric
+                train_metrics[metric_name + ' n_all' + '/train'] += len(labels)
                 writer.add_scalar(metric_name + '/train', metric, epoch)
-
-        if epoch < round(5.0 / 6 * n_epochs):
-            scheduler_loss = []
-            model.eval()
-            with torch.no_grad():
-                for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
-                    xs = xs.to(device)
-                    labels = labels.to(device)
-                    model_output = model(xs)
-                    norm_regularizers = []
-                    for channel_prune_data in channel_prune_args:
-                        weight_norms = get_weight_norms(model, channel_prune_data.layer_name)
-                        norm_regularizers.append([channel_prune_data.gamma, weight_norms.mean()])
-                    loss, metrics = loss_fn(model_output, labels, norm_regularizers, epoch, n_epochs)
-                    valid_losses.append(loss.item())
-                    writer.add_scalar('valid loss', loss.item(), epoch)
-                    for metric_name, metric in metrics.items():
-                        valid_metrics[metric_name + '/valid'].append(metric)
-                        writer.add_scalar(metric_name + '/valid', metric, epoch)
-                    scheduler_loss.append(loss.item())
-        else:
-            current_acc = evaluate_codebook_model(model, valid_dataloader, 0) * 100.0
-            if current_acc > best_acc:
-                best_acc = current_acc
-                print(f"New best accuracy: {best_acc}")
+        for metric_name, metric in metrics.items():
+            train_metrics[metric_name + ' acc' + '/train'].append(train_metrics[metric_name + ' n_correct' + '/train'] / train_metrics[metric_name + ' n_all' + '/train'])
+            
+        model.eval()
+        with torch.no_grad():
+            for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
+                xs = xs.to(device)
+                labels = labels.to(device)
+                model_output = model(xs)
+                norm_regularizers = []
+                for channel_prune_data in channel_prune_args:
+                    weight_norms = get_weight_norms(model, channel_prune_data.layer_name)
+                    norm_regularizers.append([channel_prune_data.gamma, weight_norms.mean()])
+                loss, metrics = loss_fn(model_output, labels, norm_regularizers, epoch, n_epochs)
+                valid_losses.append(loss.item())
+                writer.add_scalar('valid loss', loss.item(), epoch)
+                for metric_name, metric in metrics.items():
+                    train_metrics[metric_name + ' n_correct' + '/valid'] = 0
+                    train_metrics[metric_name + ' n_all' + '/valid'] = 0
+                for metric_name, metric in metrics.items():
+                    train_metrics[metric_name + ' acc_batch' + '/valid'].append(metric / len(labels))
+                    train_metrics[metric_name + ' n_correct' + '/valid'] += metric
+                    train_metrics[metric_name + ' n_all' + '/valid'] += len(labels)
+                    writer.add_scalar(metric_name + '/valid', metric, epoch)
+        for metric_name, metric in metrics.items():
+            train_metrics[metric_name + ' acc' + '/valid'].append(train_metrics[metric_name + ' n_correct' + '/valid'] / train_metrics[metric_name + ' n_all' + '/valid'])
+            if train_metrics[metric_name + ' acc' + '/valid'][-1] > best_acc and epoch > fine_tune_epoch:
+                best_acc = train_metrics[metric_name + ' acc' + '/valid'][-1]
+                print(f"New best acc: {best_acc}")
 
         # scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
         scheduler.step()
@@ -560,8 +570,8 @@ if __name__ == '__main__':
     if dataset == 'cifar10': 
         cifar10_train = torchvision.datasets.CIFAR10('dataset/cifar10', train=True, download=True, transform=transform)
         cifar10_test = torchvision.datasets.CIFAR10('dataset/cifar10', train=False, download=True, transform=transform)
-        cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True)
-        cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE)
+        cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=8)
+        cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE, num_workers=8)
 
         train_dl = cifar10_train_dataloader
         valid_dl = cifar10_test_dataloader
@@ -570,11 +580,9 @@ if __name__ == '__main__':
         # todo: load actual imagenet
         imagenet_train = TensorDataset(torch.randn(1024, 3, 224, 224), torch.randint(0, 1000, (1024,)))
         imagenet_test = TensorDataset(torch.randn(1024, 3, 224, 224), torch.randint(0, 1000, (1024,)))
-        imagenet_train_dataloader = DataLoader(imagenet_train, batch_size=BATCH_SIZE, shuffle=True) 
-        imagenet_test_dataloader = DataLoader(imagenet_test, batch_size=BATCH_SIZE)
+        imagenet_train_dataloader = DataLoader(imagenet_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=8) 
+        imagenet_test_dataloader = DataLoader(imagenet_test, batch_size=BATCH_SIZE, num_workers=8)
 
-        imagenet_train_small = torch.utils.data.Subset(imagenet_train, range(0, 1024))
-        imagenet_train_small_dataloader = DataLoader(imagenet_train_small, batch_size=BATCH_SIZE, shuffle=True)
         train_dl = imagenet_train_dataloader
         valid_dl = imagenet_test_dataloader
 

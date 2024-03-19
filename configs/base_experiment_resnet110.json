@@ -4,7 +4,7 @@
     "model": "resnet110",
     "reference_pretrained_weights_path": "resource/cifar_pretrained/resnet110-1d1ed7c2.th",
     "batch_size": 1024,
-    "n_epochs": 300,
+    "n_epochs": 400,
     "pretrained_weights_path": null,
     "save_weights_after_train_path": true,
     "codebook_lr": 0.001,
@@ -17,7 +17,7 @@
             "codebook_size": 16,
             "beta": "LinearCoefficient(1e-4, 1e-3)",
             "prune_epochs": [60, 80, 100, 120, 140],
-            "prune_value": 50,
+            "prune_value": 40,
             "prune_value_type": "percentage"
         }
     ],
@@ -26,7 +26,7 @@
         "layer": "layer1[17].conv2",
         "gamma": 1e-5,
         "prune_epochs": [60, 80, 100, 120, 140],
-        "prune_value": 50,
+        "prune_value": 40,
         "prune_value_type": "percentage"
     }
 }
