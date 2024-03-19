@@ -4,7 +4,7 @@
     "model": "resnet110",
     "reference_pretrained_weights_path": "resource/cifar_pretrained/resnet110-1d1ed7c2.th",
     "batch_size": 1024,
-    "n_epochs": 400,
+    "n_epochs": 300,
     "pretrained_weights_path": null,
     "save_weights_after_train_path": true,
     "codebook_lr": 0.001,

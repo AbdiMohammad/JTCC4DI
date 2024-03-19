@@ -10,7 +10,7 @@ if __name__ == '__main__':
         json_data = json.load(infile)
     
     experiment_id = 0
-    for PSNR in [20, 16, 12, 8, 4]:
+    for PSNR in [20, 4, 16, 8, 12]:
         json_data["PSNR"] = PSNR
         for codebook_prune_value in [60, 20, 40]:
             for codebook in json_data["codebooks"]:

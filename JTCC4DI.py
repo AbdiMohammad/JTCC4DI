@@ -264,6 +264,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
     train_metrics = defaultdict(list)
     valid_losses = []
     valid_metrics = defaultdict(list)
+    best_acc = -1
 
     writer = SummaryWriter()
 
@@ -271,7 +272,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
         optimizer = torch.optim.Adam(model.parameters())
     
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[round(2.0 / 4 * n_epochs), round(3.0 / 4 * n_epochs)], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[round(3.0 / 5 * n_epochs), round(4.0 / 5 * n_epochs)], gamma=0.1)
 
     for epoch in range(n_epochs):
         for channel_prune_data in channel_prune_args:
@@ -339,24 +340,30 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 train_metrics[metric_name + '/train'].append(metric)
                 writer.add_scalar(metric_name + '/train', metric, epoch)
 
-        scheduler_loss = []
-        model.eval()
-        with torch.no_grad():
-            for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
-                xs = xs.to(device)
-                labels = labels.to(device)
-                model_output = model(xs)
-                norm_regularizers = []
-                for channel_prune_data in channel_prune_args:
-                    weight_norms = get_weight_norms(model, channel_prune_data.layer_name)
-                    norm_regularizers.append([channel_prune_data.gamma, weight_norms.mean()])
-                loss, metrics = loss_fn(model_output, labels, norm_regularizers, epoch, n_epochs)
-                valid_losses.append(loss.item())
-                writer.add_scalar('valid loss', loss.item(), epoch)
-                for metric_name, metric in metrics.items():
-                    valid_metrics[metric_name + '/valid'].append(metric)
-                    writer.add_scalar(metric_name + '/valid', metric, epoch)
-                scheduler_loss.append(loss.item())
+        if epoch < round(5.0 / 6 * n_epochs):
+            scheduler_loss = []
+            model.eval()
+            with torch.no_grad():
+                for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
+                    xs = xs.to(device)
+                    labels = labels.to(device)
+                    model_output = model(xs)
+                    norm_regularizers = []
+                    for channel_prune_data in channel_prune_args:
+                        weight_norms = get_weight_norms(model, channel_prune_data.layer_name)
+                        norm_regularizers.append([channel_prune_data.gamma, weight_norms.mean()])
+                    loss, metrics = loss_fn(model_output, labels, norm_regularizers, epoch, n_epochs)
+                    valid_losses.append(loss.item())
+                    writer.add_scalar('valid loss', loss.item(), epoch)
+                    for metric_name, metric in metrics.items():
+                        valid_metrics[metric_name + '/valid'].append(metric)
+                        writer.add_scalar(metric_name + '/valid', metric, epoch)
+                    scheduler_loss.append(loss.item())
+        else:
+            current_acc = evaluate_codebook_model(model, valid_dataloader, 0) * 100.0
+            if current_acc > best_acc:
+                best_acc = current_acc
+                print(f"New best accuracy: {best_acc}")
 
         # scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
         scheduler.step()
@@ -376,7 +383,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
         # plt.show()
         
     writer.close()
-    return train_metrics, train_losses, valid_metrics, valid_losses
+    return train_metrics, train_losses, valid_metrics, valid_losses, best_acc
 
 @dataclass
 class ChannelPruneData:
@@ -654,7 +661,7 @@ if __name__ == '__main__':
         {'params': codebook_params, 'lr': codebook_lr},
     ])
     
-    train_metrics, train_losses, valid_metrics, valid_losses = train_model(n_epochs,
+    train_metrics, train_losses, valid_metrics, valid_losses, best_acc = train_model(n_epochs,
                                                                             resnet_with_codebook,
                                                                             resnet_vib_loss,
                                                                             train_dl,
@@ -734,13 +741,14 @@ if __name__ == '__main__':
         'train_metrics': train_metrics,
         'train_losses': train_losses,
         'valid_metrics': valid_metrics,
-        'valid_losses': valid_losses
+        'valid_losses': valid_losses,
+        'best_acc': best_acc
     }
 
     with open(output_folder + '/train_metrics.json', 'w') as outfile:
         json.dump(training_data, outfile)
 
-    with open(output_folder + 'measures.json', 'w') as outfile:
+    with open(output_folder + '/measures.json', 'w') as outfile:
         json.dump(measures, outfile, indent=4)
 
     if save_weights_after_train_path:
