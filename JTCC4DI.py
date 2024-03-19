@@ -570,8 +570,8 @@ if __name__ == '__main__':
     if dataset == 'cifar10': 
         cifar10_train = torchvision.datasets.CIFAR10('dataset/cifar10', train=True, download=True, transform=transform)
         cifar10_test = torchvision.datasets.CIFAR10('dataset/cifar10', train=False, download=True, transform=transform)
-        cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=8)
-        cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE, num_workers=8)
+        cifar10_train_dataloader = DataLoader(cifar10_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=16)
+        cifar10_test_dataloader = DataLoader(cifar10_test, batch_size=BATCH_SIZE, num_workers=16)
 
         train_dl = cifar10_train_dataloader
         valid_dl = cifar10_test_dataloader
@@ -580,8 +580,8 @@ if __name__ == '__main__':
         # todo: load actual imagenet
         imagenet_train = TensorDataset(torch.randn(1024, 3, 224, 224), torch.randint(0, 1000, (1024,)))
         imagenet_test = TensorDataset(torch.randn(1024, 3, 224, 224), torch.randint(0, 1000, (1024,)))
-        imagenet_train_dataloader = DataLoader(imagenet_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=8) 
-        imagenet_test_dataloader = DataLoader(imagenet_test, batch_size=BATCH_SIZE, num_workers=8)
+        imagenet_train_dataloader = DataLoader(imagenet_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=16) 
+        imagenet_test_dataloader = DataLoader(imagenet_test, batch_size=BATCH_SIZE, num_workers=16)
 
         train_dl = imagenet_train_dataloader
         valid_dl = imagenet_test_dataloader
@@ -654,7 +654,7 @@ if __name__ == '__main__':
     if dataset == 'cifar10':
         resnet_with_codebook = create_resnet_with_pruner_and_codebook(cifar_resnet_loader_generator(model_name, reference_pretrained_weights_path), train_dl, PSNR, codebook_training_data, channel_pruning_data)
     else:
-        resnet_with_codebook = create_resnet_with_pruner_and_codebook(imagenet_resnet_loader_generator(model_name), imagenet_train_small_dataloader, PSNR, codebook_training_data, channel_pruning_data)
+        resnet_with_codebook = create_resnet_with_pruner_and_codebook(imagenet_resnet_loader_generator(model_name), train_dl, PSNR, codebook_training_data, channel_pruning_data)
 
     if not pretrained_weights_path is None:
         resnet_with_codebook.load_state_dict(torch.load(pretrained_weights_path))
