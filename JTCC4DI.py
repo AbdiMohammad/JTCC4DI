@@ -1,6 +1,7 @@
 #%%
 import torch
 import numpy as np
+import random
 from matplotlib import pyplot as plt
 import torch.nn as nn
 import torch.nn.functional as F
@@ -185,7 +186,6 @@ def evaluate_codebook_model(model, dataloader, codebook_index=-1):
     device = next(model.parameters()).device
     n_all = 0
     n_correct = 0
-    model.eval()
     with torch.no_grad():
         for xs, labels in tqdm(dataloader):
 
@@ -264,6 +264,7 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
     train_metrics = defaultdict(list)
     valid_losses = []
     valid_metrics = defaultdict(list)
+    output_names = get_output_names(model, train_dataloader)
     best_acc = -1
     fine_tune_epoch = np.array([prune_data.prune_epochs for prune_data in channel_prune_args + codebook_training_datas]).max()
 
@@ -319,7 +320,9 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 # print('Valid accuracy after pruning: ', evaluate_codebook_model(model, valid_dataloader, i))
                 print('_' * 80)
 
-        model.train()
+        for output_name in output_names:
+            train_metrics[f'{output_name} n_correct'] = 0
+        train_n_all = 0
         for xs, labels in tqdm(train_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
 
             xs = xs.to(device)
@@ -337,18 +340,20 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
 
             train_losses.append(loss.item())
             writer.add_scalar('train loss', loss.item(), epoch)
-            for metric_name, metric in metrics.items():
-                train_metrics[metric_name + ' n_correct' + '/train'] = 0
-                train_metrics[metric_name + ' n_all' + '/train'] = 0
-            for metric_name, metric in metrics.items():
-                train_metrics[metric_name + ' acc_batch' + '/train'].append(metric / len(labels))
-                train_metrics[metric_name + ' n_correct' + '/train'] += metric
-                train_metrics[metric_name + ' n_all' + '/train'] += len(labels)
-                writer.add_scalar(metric_name + '/train', metric, epoch)
-        for metric_name, metric in metrics.items():
-            train_metrics[metric_name + ' acc' + '/train'].append(train_metrics[metric_name + ' n_correct' + '/train'] / train_metrics[metric_name + ' n_all' + '/train'])
-            
-        model.eval()
+
+            train_n_all += len(labels)
+            for output_name, metric in metrics.items():
+                train_metrics[output_name + ' acc_batch'].append(metric / len(labels))
+                train_metrics[output_name + ' n_correct'] += metric
+                writer.add_scalar(output_name + '/train', metric, epoch)
+        
+        for output_name, metric in metrics.items():
+            train_metrics[output_name + ' acc'].append(train_metrics[output_name + ' n_correct'] / train_n_all)
+            del train_metrics[output_name + ' n_correct']
+
+        for output_name in output_names:
+            valid_metrics[f'{output_name} n_correct'] = 0
+        valid_n_all = 0
         with torch.no_grad():
             for xs, labels in tqdm(valid_dataloader, desc=f'Epoch {epoch}/{n_epochs}'):
                 xs = xs.to(device)
@@ -361,19 +366,21 @@ def train_model(n_epochs, model, loss_fn, train_dataloader, valid_dataloader, op
                 loss, metrics = loss_fn(model_output, labels, norm_regularizers, epoch, n_epochs)
                 valid_losses.append(loss.item())
                 writer.add_scalar('valid loss', loss.item(), epoch)
-                for metric_name, metric in metrics.items():
-                    train_metrics[metric_name + ' n_correct' + '/valid'] = 0
-                    train_metrics[metric_name + ' n_all' + '/valid'] = 0
-                for metric_name, metric in metrics.items():
-                    train_metrics[metric_name + ' acc_batch' + '/valid'].append(metric / len(labels))
-                    train_metrics[metric_name + ' n_correct' + '/valid'] += metric
-                    train_metrics[metric_name + ' n_all' + '/valid'] += len(labels)
-                    writer.add_scalar(metric_name + '/valid', metric, epoch)
-        for metric_name, metric in metrics.items():
-            train_metrics[metric_name + ' acc' + '/valid'].append(train_metrics[metric_name + ' n_correct' + '/valid'] / train_metrics[metric_name + ' n_all' + '/valid'])
-            if train_metrics[metric_name + ' acc' + '/valid'][-1] > best_acc and epoch > fine_tune_epoch:
-                best_acc = train_metrics[metric_name + ' acc' + '/valid'][-1]
-                print(f"New best acc: {best_acc}")
+
+                valid_n_all += len(labels)
+                for output_name, metric in metrics.items():
+                    valid_metrics[output_name + ' acc_batch'].append(metric / len(labels))
+                    valid_metrics[output_name + ' n_correct'] += metric
+                    writer.add_scalar(output_name + '/valid', metric, epoch)
+
+        for output_name, metric in metrics.items():
+            valid_metrics[output_name + ' acc'].append(valid_metrics[output_name + ' n_correct'] / valid_n_all)
+            if 'codebook' in output_name:
+                print(f"curr_val_acc: {valid_metrics[output_name + ' acc'][-1]}")
+            del valid_metrics[output_name + ' n_correct']
+            if epoch > fine_tune_epoch and 'codebook' in output_name and valid_metrics[output_name + ' acc'][-1] > best_acc:
+                best_acc = valid_metrics[output_name + ' acc'][-1]
+                # print(f"New best_acc: {best_acc}")
 
         # scheduler.step(torch.tensor(scheduler_loss, dtype=torch.float64).mean().item())
         scheduler.step()
@@ -507,7 +514,7 @@ def prune_codebook(model, dataloader, codebook_index, value_to_prune, value_type
 
     counts = get_codebook_usage_data(model, dataloader, codebook_index)
     if value_type == 'number':
-        unpruned_indices = counts.sort()[1][value_to_prune:]
+        unpruned_indices = counts.sort()[1][round(value_to_prune):]
     elif value_type == 'percentage':
         unpruned_indices = counts.sort()[1][round(value_to_prune/100.0*len(counts)):]
         # unpruned_indices = (counts > (value_to_prune / 100.0 * counts.max())).nonzero(as_tuple=True)[0]
@@ -525,7 +532,7 @@ def prune_and_replace_codebook(model, dataloader, index, layer_name, value_to_pr
 
 def get_channels_to_prune(weight_norms, value_to_prune, value_type='number'):
     if value_type == 'number':
-        indices_to_prune = weight_norms.argsort()[:value_to_prune]
+        indices_to_prune = weight_norms.argsort()[:round(value_to_prune)]
     elif value_type == 'percentage':
         indices_to_prune = weight_norms.argsort()[:round(value_to_prune/100.0*len(weight_norms))]
         # indices_to_prune = (weight_norms < (value_to_prune / 100.0 * weight_norms.max())).nonzero()[0]
@@ -547,6 +554,25 @@ def get_weight_norms(model, layer_name):
             weights = eval('model.' + new_layer_name).weight
         # weight = eval('model.' + layer_name + '[0]')
     return weights.flatten(1).norm(dim=1)
+
+def get_output_names(model, data_loader):
+    device = model_device(model)
+    sample_output = model(next(iter(data_loader))[0].to(device))
+    output_names = ["original"]
+    if type(sample_output) == CodebookOutput:
+        for _, _, codebook in sample_output.codebook_outputs:
+            output_names.append(f"codebook at {codebook.train_data.layer_name}")
+    return output_names
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
 
 #%%
 # pretrained_resnet = load_pretrained_resnet()
@@ -692,22 +718,23 @@ if __name__ == '__main__':
     def recursive_dict():
         return defaultdict(recursive_dict)
     measures = recursive_dict()
+
+    measures['virtual']['acc']['ori'], measures['virtual']['acc']['codebook'] = evaluate_codebook_model(resnet_with_codebook, valid_dl, -1) * 100.0, evaluate_codebook_model(resnet_with_codebook, valid_dl, 0) * 100.0
     measures['virtual']['total']['flops'], measures['virtual']['total']['params'] = count_ops_and_params(resnet_with_codebook)
     measures['virtual']['head']['flops'], measures['virtual']['head']['params'] = count_ops_and_params(resnet_with_codebook, ignore_list=tail_modules)
-    measures['virtual']['acc']['ori'], measures['virtual']['acc']['codebook'] = evaluate_codebook_model(resnet_with_codebook, valid_dl, -1) * 100.0, evaluate_codebook_model(resnet_with_codebook, valid_dl, 0) * 100.0
 
     physically_pruned_model = get_physically_pruned_model(resnet_with_codebook, channel_prune_args=channel_pruning_data)
+    measures['physical']['acc']['ori'], measures['physical']['acc']['codebook'] = evaluate_codebook_model(physically_pruned_model, valid_dl, -1) * 100.0, evaluate_codebook_model(physically_pruned_model, valid_dl, 0) * 100.0
     measures['physical']['total']['flops'], measures['physical']['total']['params'] = count_ops_and_params(physically_pruned_model)
     measures['physical']['head']['flops'], measures['physical']['head']['params'] = count_ops_and_params(physically_pruned_model, ignore_list=tail_modules)
-    measures['physical']['acc']['ori'], measures['physical']['acc']['codebook'] = evaluate_codebook_model(physically_pruned_model, valid_dl, -1) * 100.0, evaluate_codebook_model(physically_pruned_model, valid_dl, 0) * 100.0
 
     unmodified_model = cifar_resnet_loader_generator(model_name, reference_pretrained_weights_path)()
+    measures['unmodified']['acc']['ori'] = evaluate_codebook_model(unmodified_model, valid_dl, -1) * 100.0
     measures['unmodified']['total']['flops'], measures['unmodified']['total']['params'] = count_ops_and_params(unmodified_model)
     measures['unmodified']['head']['flops'], measures['unmodified']['head']['params'] = count_ops_and_params(unmodified_model, ignore_list=tail_modules)
-    measures['unmodified']['acc']['ori'] = evaluate_codebook_model(unmodified_model, valid_dl, -1) * 100.0
 
     measures['total']['accel'], measures['head']['accel'] = measures['virtual']['total']['flops'] / measures['physical']['total']['flops'] * 100.0, measures['virtual']['head']['flops'] / measures['physical']['head']['flops'] * 100.0
-    measures['total']['comp'], measures['head']['comp'] = measures['virtual']['total']['params'] / measures['physical']['total']['params'], measures['virtual']['head']['params'] / measures['physical']['head']['params']
+    measures['total']['comp'], measures['head']['comp'] = measures['virtual']['total']['params'] / measures['physical']['total']['params'] * 100.0, measures['virtual']['head']['params'] / measures['physical']['head']['params'] * 100.0
 
     measures['comm']['ori'], measures['comm']['comp'] = codebook_training_data[0].codebook_size, resnet_with_codebook(return_example_input()).codebook_outputs[0][2].n_embeddings
     measures['comm']['efficiency'] = (measures['comm']['ori'] / measures['comm']['comp']) * 100.0
@@ -753,7 +780,7 @@ if __name__ == '__main__':
         'best_acc': best_acc
     }
 
-    with open(output_folder + '/train_metrics.json', 'w') as outfile:
+    with open(output_folder + '/training_data.json', 'w') as outfile:
         json.dump(training_data, outfile)
 
     with open(output_folder + '/measures.json', 'w') as outfile:

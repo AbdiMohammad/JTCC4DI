@@ -13,12 +13,12 @@ if __name__ == '__main__':
     for PSNR in [20, 4, 16, 8, 12]:
         json_data["PSNR"] = PSNR
         for funnel_gamma in [1e-5, 0]:
-            for codebook_size in [32, 16]:
-                for codebook_prune_value in [60, 20, 40]:
+            for codebook_size in [16, 32]:
+                for codebook_prune_value in [80, 20, 60, 40]:
                     for codebook in json_data["codebooks"]:
                         codebook["prune_value"] = codebook_prune_value
                         codebook["codebook_size"] = codebook_size
-                    for funnel_prune_value in [60, 20, 40]:
+                    for funnel_prune_value in [80, 20, 60, 40]:
                         json_data["funnel"]["prune_value"] = funnel_prune_value
                         json_data["funnel"]["gamma"] = funnel_gamma
                         output_folder = f"output/experiment_{experiment_id}"
